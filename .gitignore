@@ -1,0 +1,5 @@
+build/
+*.o
+archivo_50mb.txt
+test_50mb.txt
+.DS_Store
