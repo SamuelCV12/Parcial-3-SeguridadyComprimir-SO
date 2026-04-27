@@ -1,6 +1,4 @@
 # EDTX | Editor de Texto de Bajo Nivel con I/O Optimizado
-
-![Estado del Proyecto](https://img.shields.io/badge/Estado-Finalizado-success)
 ![Lenguaje](https://img.shields.io/badge/Lenguaje-C-blue)
 ![SO](https://img.shields.io/badge/SO-Linux-orange)
 
@@ -59,7 +57,7 @@ El sistema implementa un pipeline donde la información nunca viaja al disco en 
 ### Uso
 Para iniciar el editor con un archivo nuevo o existente:
 ```bash
-./build/editor nombre_archivo.txt
+./build/editor nombre_archivo
 ```
 
 #### Banderas de Optimización
@@ -83,6 +81,41 @@ Los archivos generados por este editor utilizan un formato binario propietario c
 *   **Magic Number:** `EDTX` (Firma de validación).
 *   **Metadata:** Versión, banderas de compresión y metadatos de color.
 *   **Size:** Tamaño original para gestión precisa de `malloc` en descompresión.
+
+---
+
+## 📊 Profiling & Benchmarking
+Para validar empíricamente la eficiencia del diseño, se pueden realizar pruebas de rendimiento comparando el **Enfoque Clásico** (sin optimización) vs el **Enfoque Propuesto** (EDTX).
+
+### 1. Generar archivo de prueba (50 MB)
+```bash
+head -c 50000000 /dev/zero | tr '\0' 'A' > test_50mb.txt
+```
+
+### 2. Prueba de Enfoque Clásico (RAW)
+Mide el tiempo y las llamadas al sistema sin compresión:
+```bash
+# Medir tiempos (User, Sys, Real)
+time ./build/editor test_50mb.txt --raw
+
+# Contar llamadas al sistema (Syscalls)
+strace -c ./build/editor test_50mb.txt --raw
+```
+
+### 3. Prueba de Enfoque Propuesto (EDTX + RLE)
+Mide la eficiencia con el pipeline de compresión e I/O optimizado:
+```bash
+# Medir tiempos
+time ./build/editor test_50mb.txt
+
+# Contar llamadas al sistema
+strace -c ./build/editor test_50mb.txt
+```
+
+### 4. Resultados Esperados
+*   **Reducción de Syscalls:** El número de llamadas a `write()` debe disminuir significativamente (~70% menos).
+*   **Carga del Kernel:** El `sys time` debe ser menor debido a la reducción de interrupciones.
+*   **Ahorro en Disco:** El archivo final debe ocupar una fracción del tamaño original (validar con `ls -lh`).
 
 ---
 **Desarrollado para la asignatura de Sistemas Operativos.**  
