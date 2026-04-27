@@ -30,6 +30,9 @@ IO_Strategy global_strategy = IO_CHUNK;
 
 // =================== MODO RAW =====================
 void disable_raw_mode() {
+    // Salir del Alternate Buffer y mostrar el cursor
+    write(STDOUT_FILENO, "\x1b[?1049l", 8);
+    write(STDOUT_FILENO, "\x1b[?25h", 6);
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
 }
 
@@ -45,6 +48,9 @@ void enable_raw_mode() {
     raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
 
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) exit(1);
+
+    // Entrar al Alternate Buffer para no ensuciar el historial de la terminal
+    write(STDOUT_FILENO, "\x1b[?1049h", 8);
 }
 
 // =================== ENTRADA ======================
@@ -73,44 +79,66 @@ int editor_read_key() {
 
 // =================== MOTOR INTERACTIVO =================
 void editor_refresh_screen() {
-    // 1. Limpiar pantalla completa y ocultar cursor temporalmente
-    write(STDOUT_FILENO, "\x1b[2J", 4);
+    // 1. Ocultar el cursor temporalmente
+    write(STDOUT_FILENO, "\x1b[?25l", 6);
+    
+    // 2. Mover el cursor a la esquina superior izquierda sin borrar todo el historial
     write(STDOUT_FILENO, "\x1b[H", 3);
 
-    // 2. Extraer todo el contenido y pintarlo
+    // 3. Extraer el contenido del Gap Buffer
     size_t content_size;
     char *content = gap_buffer_get_content(gb, &content_size);
+
+    // 4. Renderizar el Menú Superior Fijo (UI)
+    char status[512];
+    const char* strat_name = (global_strategy == IO_MMAP) ? "MMAP" : "CHUNK";
+    const char* comp_name = use_compression ? "RLE" : "RAW";
+    
+    // \x1b[100;97m = Fondo Gris Oscuro (100), Texto Blanco Brillante (97)
+    // \x1b[96m     = Texto Cyan Brillante (para resaltar los atajos)
+    snprintf(status, sizeof(status), 
+             "\x1b[44;97m EDTX v1.0 | Archivo: %s | Tamaño %zu B | I/O: %s | Modo: %s | "
+             "\x1b[93m[Ctrl-S]\x1b[97m Guardar | \x1b[93m[Ctrl-X]\x1b[97m Salir \x1b[K\x1b[m\r\n", 
+             current_filename, content_size, strat_name, comp_name);
+             
+    write(STDOUT_FILENO, status, strlen(status));
+
+    // 5. Renderizar el texto
     if (content) {
-        // Renderizar solo un pedazo para no colgar la terminal con 50MB
+        // Borrar la pantalla desde la línea 2 hacia abajo para limpiar restos de texto borrado
+        write(STDOUT_FILENO, "\x1b[J", 3); 
+        
         size_t render_limit = (content_size < 2000) ? content_size : 2000;
         for (size_t i = 0; i < render_limit; i++) {
             if (content[i] == '\n') write(STDOUT_FILENO, "\r\n", 2);
             else write(STDOUT_FILENO, &content[i], 1);
         }
         if (content_size >= 2000) {
-            write(STDOUT_FILENO, "\r\n... [Archivo masivo, renderizado truncado por seguridad] ...\r\n", 64);
+            // Mensaje de advertencia si el archivo es gigante (color amarillo \x1b[33m)
+            write(STDOUT_FILENO, "\r\n\x1b[33m... [Archivo masivo, renderizado truncado por seguridad] ...\x1b[m\r\n", 71);
         }
         free(content);
+    } else {
+        // Si el archivo está vacío, igual limpiamos de la fila 2 hacia abajo
+        write(STDOUT_FILENO, "\x1b[J", 3);
     }
 
-    // 3. Pintar la UI inferior
-    char status[512];
-    const char* strat_name = (global_strategy == IO_MMAP) ? "MMAP" : "CHUNK";
-    const char* comp_name = use_compression ? "RLE" : "RAW";
-    snprintf(status, sizeof(status), "\r\n\x1b[7m EDTX | %s | %zu B | I/O: %s | %s | [Ctrl-S] Guardar | [Ctrl-X] Salir \x1b[m", 
-             current_filename, content_size, strat_name, comp_name);
-    write(STDOUT_FILENO, status, strlen(status));
-
-    // 4. Calcular coordenadas lógicas del cursor (X, Y) iterando hasta el gap_start
-    int cx = 1, cy = 1;
+    // 5. Calcular coordenadas lógicas del cursor (X, Y)
+    int cx = 1;
+    int cy = 2; // ¡CLAVE! cy empieza en 2 porque la Fila 1 está ocupada por el menú
+    
     for (size_t i = 0; i < gb->gap_start; i++) {
-        if (gb->buffer[i] == '\n') { cy++; cx = 1; }
-        else { cx++; }
+        if (gb->buffer[i] == '\n') { 
+            cy++; 
+            cx = 1; 
+        } else { 
+            cx++; 
+        }
     }
     
-    // 5. Mover el cursor físico a la coordenada lógica
+    // 6. Mover el cursor físico a su coordenada real y volver a mostrar el cursor en pantalla
     char buf[32];
-    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", cy, cx);
+    snprintf(buf, sizeof(buf), "\x1b[%d;%dH\x1b[?25h", cy, cx);
     write(STDOUT_FILENO, buf, strlen(buf));
 }
 
