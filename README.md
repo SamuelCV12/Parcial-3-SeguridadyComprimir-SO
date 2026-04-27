@@ -118,5 +118,3 @@ strace -c ./build/editor test_50mb.txt
 *   **Ahorro en Disco:** El archivo final debe ocupar una fracción del tamaño original (validar con `ls -lh`).
 
 ---
-**Desarrollado para la asignatura de Sistemas Operativos.**  
-*Enfoque en eficiencia, syscalls y gestión de recursos del Kernel.*
